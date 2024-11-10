@@ -50,8 +50,8 @@ def display_recipes(items_info, groq_client):
 def main():
     """Main application function with Streamlit UI."""
     try:
-        st.set_page_config(layout="wide", page_title="FoodEase")
-        st.title("🍽️ FoodEase: AI Family Hub")
+        st.set_page_config(layout="wide", page_title="MamaBear")
+        st.title("🍽️ MamaBear: making dinner simpler.")
         
         with st.spinner("Initializing..."):
             apis = initialize_apis()
