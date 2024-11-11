@@ -1,42 +1,83 @@
 import streamlit as st
 
 def create_recipe_card(recipe, recipe_details):
-    """Create a styled recipe card with HTML/CSS formatting."""
-    missed_ingredients = ', '.join([ing['name'] for ing in recipe.get('missedIngredients', [])])
-    used_ingredients = ', '.join([ing['name'] for ing in recipe.get('usedIngredients', [])])
-    key_info = parse_recipe_key_info(recipe_details)
+    """Create a styled recipe card using Streamlit components."""
+    # Parse ingredients
+    missed_ingredients = ', '.join([
+        ing['name'] for ing in recipe.get('missedIngredients', [])
+        if isinstance(ing, dict) and 'name' in ing
+    ])
+    used_ingredients = ', '.join([
+        ing['name'] for ing in recipe.get('usedIngredients', [])
+        if isinstance(ing, dict) and 'name' in ing
+    ])
+    
+    # Initialize key_info with default values before parsing
+    key_info = {
+        'Calories': 'Not available',
+        'Cooking Time': 'Not specified',
+        'Price': 'Not calculated',
+        'Dietary': 'Not specified',
+        'Cuisine': 'Not specified',
+        'Difficulty': 'Not specified'
+    }
+    
+    # Update key_info with parsed values if recipe_details exists
+    if recipe_details:
+        parsed_info = parse_recipe_key_info(recipe_details)
+        key_info.update(parsed_info)
+    
+    with st.container():
+        # Recipe image - using new use_container_width parameter
+        if recipe.get('image'):
+            st.image(
+                recipe.get('image'),
+                use_container_width=True  # Updated from use_column_width
+            )
+        
+        # Recipe title
+        st.header(recipe.get('title', 'Recipe Title'))
+        
+        # Recipe info in columns
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("🔥 **Calories:** ", key_info.get('Calories', 'Not available'))
+            st.write("⏱️ **Cooking Time:** ", key_info.get('Cooking Time', 'Not specified'))
+            st.write("💰 **Price:** ", key_info.get('Price', 'Not calculated'))
+        
+        with col2:
+            st.write("🥗 **Dietary:** ", key_info.get('Dietary', 'Not specified'))
+            st.write("🌎 **Cuisine:** ", key_info.get('Cuisine', 'Not specified'))
+            st.write("📊 **Difficulty:** ", key_info.get('Difficulty', 'Not specified'))
+        
+        # Ingredients section
+        st.markdown("---")  # Divider
+        st.subheader("🧂 Ingredients")
+        
+        ingredients_col1, ingredients_col2 = st.columns(2)
+        with ingredients_col1:
+            st.write("**Available:**")
+            st.write(used_ingredients or 'None')
+        with ingredients_col2:
+            st.write("**Missing:**")
+            st.write(missed_ingredients or 'None')
+        
+        # Instructions
+        if recipe_details:
+            st.markdown("---")  # Divider
+            st.subheader("📝 Instructions")
+            st.write(recipe_details)
 
-    for field in ['Calories', 'Cooking Time', 'Price', 'Dietary', 'Cuisine', 'Difficulty']:
-        key_info.setdefault(field, "Not Found")
-
-    card_html = f"""
-    <div style="border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); height: 600px; overflow-y: auto;">
-        <img src="{recipe['image']}" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px;">
-        <h3 style="margin-top: 10px;">{recipe['title']}</h3>
-        <p>🔥 **Calories**: {key_info['Calories']}</p>
-        <p>⏱️ **Cooking Time**: {key_info['Cooking Time']}</p>
-        <p>💰 **Price**: {key_info['Price']}</p>
-        <p>🥗 **Dietary**: {key_info['Dietary']}</p>
-        <p>🌎 **Cuisine**: {key_info['Cuisine']}</p>
-        <p>📊 **Difficulty**: {key_info['Difficulty']}</p>
-        <p><strong>Used ingredients:</strong> {used_ingredients}</p>
-        <p><strong>Missing ingredients:</strong> {missed_ingredients}</p>
-        <div>
-            {recipe_details}
-        </div>
-    </div>
-    """
-    return card_html
-
-def parse_recipe_key_info(recipe_details):
+def parse_recipe_key_info(recipe_details: str) -> dict:
     """Parse key information from recipe details."""
     key_info = {}
     try:
-        key_info_section = recipe_details.split("Key Information:")[1].split("\n\n")[0]
-        for line in key_info_section.split("\n"):
-            if ":" in line:
-                key, value = line.split(":", 1)
-                key_info[key.strip()] = value.strip()
-    except Exception:
-        pass
+        if isinstance(recipe_details, str) and "Key Information:" in recipe_details:
+            key_info_section = recipe_details.split("Key Information:")[1].split("\n\n")[0]
+            for line in key_info_section.split("\n"):
+                if ":" in line:
+                    key, value = [part.strip() for part in line.split(":", 1)]
+                    key_info[key] = value
+    except Exception as e:
+        st.error(f"Error parsing recipe details: {str(e)}")
     return key_info

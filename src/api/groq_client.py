@@ -1,13 +1,20 @@
-from groq import Groq
-import streamlit as st
 import os
+import streamlit as st
+from groq import Groq
 
 def initialize_groq_client():
-    """Initialize Groq client with API key."""
+    """Initialize and return Groq client."""
     try:
-        return Groq(api_key=os.getenv("GROQ_API_KEY"))
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY not found in environment variables")
+            
+        # Initialize the client using the current API structure
+        client = Groq(api_key=api_key)
+        return client
+        
     except Exception as e:
-        st.error(f"Failed to initialize Groq API: {str(e)}")
+        st.error(f"Failed to initialize Groq client: {str(e)}")
         raise
 
 def generate_recipe_details(groq_client, recipe):
