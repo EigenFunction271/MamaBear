@@ -12,6 +12,51 @@ An AI-powered kitchen assistant that analyzes your fridge contents and suggests 
   - Groq API Key (for LLM processing)
   - Spoonacular API Key (for recipe database)
 
+## Environment Setup
+
+1. **Create Environment File**
+   - Copy `.env.template` to create your `.env` file:
+   ```bash
+   cp .env.template .env
+   ```
+   - Edit `.env` and add your API keys:
+     - Required Keys:
+       - `GOOGLE_API_KEY`: Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
+       - `GROQ_API_KEY`: Get from [Groq Cloud](https://console.groq.com/)
+       - `SPOONACULAR_API_KEY`: Get from [Spoonacular](https://spoonacular.com/food-api)
+     - Optional Keys:
+       - `OPENAI_API_KEY`: For fallback recipe generation
+       - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: For calendar integration
+
+2. **API Setup Instructions**
+
+   ### Google AI (Gemini) Setup:
+   1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+   2. Create or select a project
+   3. Enable the Gemini API
+   4. Create an API key
+   5. Copy the key to your `.env` file
+
+   ### Groq Setup:
+   1. Sign up at [Groq Cloud](https://console.groq.com/)
+   2. Navigate to API Keys section
+   3. Generate a new API key
+   4. Copy the key to your `.env` file
+
+   ### Spoonacular Setup:
+   1. Create account at [Spoonacular](https://spoonacular.com/food-api)
+   2. Subscribe to a plan (free tier available)
+   3. Get your API key from the dashboard
+   4. Copy the key to your `.env` file
+
+   ### Google Calendar Setup (Optional):
+   1. Visit [Google Cloud Console](https://console.cloud.google.com/)
+   2. Create a new project
+   3. Enable the Google Calendar API
+   4. Configure OAuth consent screen
+   5. Create OAuth 2.0 credentials
+   6. Copy Client ID and Secret to your `.env` file
+
 ## Setup Instructions
 
 1. **Clone the repository**
@@ -34,15 +79,7 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-3. **Create `.env` file**
-Create a file named `.env` in the project root and add your API keys:
-```
-GOOGLE_API_KEY=your_google_api_key
-GROQ_API_KEY=your_groq_api_key
-SPOONACULAR_API_KEY=your_spoonacular_api_key
-```
-
-4. **Install Dependencies**
+3. **Install Dependencies**
 ```bash
 pip install -r requirements.txt
 ```
