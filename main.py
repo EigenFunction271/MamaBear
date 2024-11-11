@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings('ignore', message='.*missing ScriptRunContext.*')
+
 import streamlit as st
 from dotenv import load_dotenv
 import os
@@ -8,6 +11,17 @@ from src.api.gemini_client import initialize_gemini_client
 from src.services.image_analysis_service import analyze_fridge_image
 from src.services.recipe_service import get_recipes_from_spoonacular
 from src.ui.components import create_recipe_card
+from src.pages.meal_planner_page import render_meal_planner_page
+from src.pages.home_page import render_home_page
+from src.pages.recipe_page import render_recipe_page, display_recipes, generate_recipe_details
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Verify API key is loaded
+api_key = os.getenv("GOOGLE_API_KEY")
+if not api_key:
+    raise ValueError("GOOGLE_API_KEY not found in environment variables")
 
 def initialize_apis():
     """Initialize API clients and check environment variables."""
@@ -31,76 +45,37 @@ def initialize_apis():
         'gemini': initialize_gemini_client()
     }
 
-def display_recipes(items_info, groq_client):
-    """Display recipe cards in a grid layout."""
-    ingredients_key = tuple(sorted(items_info.keys()))
-    
-    with st.spinner("🔍 Searching for recipes..."):
-        recipes = get_recipes_from_spoonacular(ingredients_key)
-        
-    if recipes:
-        cols = st.columns(2)
-        for idx, recipe in enumerate(recipes):
-            with cols[idx % 2]:
-                recipe_details = generate_recipe_details(groq_client, recipe)
-                st.markdown(create_recipe_card(recipe, recipe_details), unsafe_allow_html=True)
-    else:
-        st.warning("No recipes found. Try with different ingredients.")
-
 def main():
     """Main application function with Streamlit UI."""
     try:
         st.set_page_config(layout="wide", page_title="MamaBear")
-        st.title("🍽️ MamaBear: making dinner simpler.")
         
-        with st.spinner("Initializing..."):
-            apis = initialize_apis()
-            
-        st.markdown("""
-        ### 📸 How to use:
-        1. Upload a photo of your fridge contents
-        2. Wait for AI analysis
-        3. View detected items and recipe suggestions
-        """)
+        # Initialize session state
+        if 'page' not in st.session_state:
+            st.session_state.page = "Home"
         
-        uploaded_file = st.file_uploader(
-            "📸 Upload an image of your fridge", 
-            type=["jpg", "jpeg", "png"],
-            help="Upload a clear image of your fridge contents"
+        # Sidebar navigation
+        st.sidebar.title("Navigation")
+        st.sidebar.page_link = st.sidebar.radio(
+            "Go to",
+            ["Home", "Recipe Analysis", "Meal Planning"]
         )
         
-        if uploaded_file:
-            with st.spinner("🔍 Processing your image..."):
-                temp_path = process_image(uploaded_file)
-                if temp_path:
-                    try:
-                        analysis_result, annotated_image, items_info = analyze_fridge_image(temp_path)
-                        
-                        if analysis_result and items_info:
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                st.image(annotated_image, caption="Analyzed Fridge Contents")
-                            
-                            with col2:
-                                st.markdown("### 📝 Detected Items:")
-                                st.write(analysis_result)
-                            
-                            st.markdown("### 🍳 Recommended Recipes")
-                            display_recipes(items_info, apis['groq'])
-                        else:
-                            st.error("Could not analyze the image. Please try again with a clearer photo.")
-                    finally:
-                        try:
-                            os.remove(temp_path)
-                        except:
-                            pass
-                            
+        # Initialize APIs
+        apis = initialize_apis()
+        
+        # Page routing
+        if st.sidebar.page_link == "Home":
+            render_home_page()
+        elif st.sidebar.page_link == "Recipe Analysis":
+            render_recipe_page(apis)
+        elif st.sidebar.page_link == "Meal Planning":
+            render_meal_planner_page(st.session_state.get('selected_recipe'))
     except Exception as e:
         st.error("😔 Something went wrong!")
         st.error(str(e))
         if st.button("🔄 Restart Application"):
-            st.experimental_rerun()
+            st.rerun()
 
 if __name__ == "__main__":
     main()
