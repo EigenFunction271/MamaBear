@@ -160,7 +160,8 @@ class MealPlannerService:
     def schedule_meal_prep(
         self, 
         recipe: Dict,
-        start_time: datetime
+        start_time: datetime,
+        meal_type: str = "Meal"
     ) -> bool:
         """Schedule a meal preparation session."""
         try:
@@ -182,7 +183,7 @@ class MealPlannerService:
                 raise ValueError("Please select a time at least 1 minute in the future")
 
             event = {
-                'summary': f'Meal Prep: {recipe_name}',
+                'summary': f'{meal_type} Prep: {recipe_name}',
                 'description': f'Preparing {recipe_name}\nEstimated time: {duration_minutes} minutes',
                 'start': {
                     'dateTime': start_time.isoformat(),

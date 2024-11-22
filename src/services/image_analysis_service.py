@@ -117,18 +117,38 @@ def draw_annotations(image: Image, items_info: Dict, analysis_result: str) -> Im
                 # Get normalized coordinates
                 box = info['box']
                 
-                # Ensure coordinates are valid
-                x0, y0 = min(box[0], box[2]), min(box[1], box[3])
-                x1, y1 = max(box[0], box[2]), max(box[1], box[3])
+                # Ensure coordinates are within image bounds
+                x0 = max(0, min(box[0], width))
+                y0 = max(0, min(box[1], height))
+                x1 = max(0, min(box[2], width))
+                y1 = max(0, min(box[3], height))
+                
+                # Ensure box has minimum dimensions
+                if abs(x1 - x0) < 10 or abs(y1 - y0) < 10:
+                    continue
+                
+                # Snap to shelf edges if close
+                shelf_threshold = 10  # pixels
+                for y in range(height):
+                    # Check for horizontal lines that might be shelves
+                    if is_shelf_line(image, y, width):
+                        if abs(y - y0) < shelf_threshold:
+                            y0 = y
+                        if abs(y - y1) < shelf_threshold:
+                            y1 = y
                 
                 # Get color based on category
                 color = colors.get(info.get('category', 'other'), colors['other'])
                 
-                # Draw semi-transparent box
+                # Draw semi-transparent box with thicker outline
                 draw.rectangle([x0, y0, x1, y1], fill=color)
+                draw.rectangle([x0, y0, x1, y1], outline=(0, 0, 0, 200), width=2)
                 
-                # Draw label
+                # Draw label with background
                 label = f"{item_name}: {info.get('quantity', 'unknown')}"
+                label_bbox = draw.textbbox((x0, y0-15), label, font=font)
+                draw.rectangle([label_bbox[0]-2, label_bbox[1]-2, label_bbox[2]+2, label_bbox[3]+2], 
+                             fill=(255, 255, 255, 200))
                 draw.text((x0, y0-15), label, font=font, fill=(0, 0, 0, 255))
         
         # Combine the original image with the overlay
@@ -138,6 +158,27 @@ def draw_annotations(image: Image, items_info: Dict, analysis_result: str) -> Im
     except Exception as e:
         logger.error(f"Error creating annotations: {str(e)}")
         return image
+
+def is_shelf_line(image: Image, y: int, width: int) -> bool:
+    """Detect if a horizontal line might be a shelf edge."""
+    try:
+        # Convert to grayscale for edge detection
+        if image.mode != 'L':
+            image = image.convert('L')
+            
+        # Sample points along the line
+        samples = [image.getpixel((x, y)) for x in range(0, width, 10)]
+        
+        # Check for consistent brightness and variation
+        avg = sum(samples) / len(samples)
+        variance = sum((s - avg) ** 2 for s in samples) / len(samples)
+        
+        # Return True if this looks like a shelf line
+        return variance < 100 and avg > 200  # Adjust these thresholds as needed
+        
+    except Exception as e:
+        logger.error(f"Error detecting shelf line: {str(e)}")
+        return False
 
 def extract_organization_suggestions(analysis: str) -> list:
     """Extract organization suggestions from the analysis text."""
