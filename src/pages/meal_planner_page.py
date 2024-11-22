@@ -71,42 +71,51 @@ def create_calendar_view(events, selected_slot=None):
 def render_meal_planner_page(recipe_data=None):
     st.header("📅 Meal Planning")
     
+    # Initialize meal planner if recipe is selected
     if not recipe_data:
         st.warning("Please select a recipe first!")
         return
 
-    try:
-        meal_planner = initialize_meal_planner()
-        
-        # Display recipe details
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.subheader(f"Planning for: {recipe_data['title']}")
-            st.write(f"Preparation time: {recipe_data.get('readyInMinutes', 30)} minutes")
-        
-        with col2:
-            planning_window = st.selectbox(
-                "Planning Window",
-                options=[7, 14, 21],
-                format_func=lambda x: f"{x} days",
-                help="How far ahead would you like to plan?",
-                index=0
-            )
+    # Add planning window selector in a column layout
+    col1, col2 = st.columns([2, 1])
+    with col2:
+        planning_window = st.selectbox(
+            "Planning Window",
+            options=[7, 14, 21],
+            format_func=lambda x: f"{x} days",
+            help="Select how many days ahead to plan"
+        )
 
-        # Get calendar events for display
-        now = datetime.now(pytz.UTC)
-        time_max = (now + timedelta(days=planning_window)).isoformat()
-        
-        events_result = meal_planner.service.events().list(
-            calendarId='primary',
-            timeMin=now.isoformat(),
-            timeMax=time_max,
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-        
-        events = events_result.get('items', [])
-        
+    try:
+        with st.status("Setting up meal planner...", expanded=True) as status:
+            st.write("🔄 Initializing calendar...")
+            meal_planner = initialize_meal_planner()
+            
+            # Display recipe details
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.subheader(f"Planning for: {recipe_data['title']}")
+                st.write(f"Preparation time: {recipe_data.get('readyInMinutes', 30)} minutes")
+            
+            status.update(label="Finding available time slots...", state="running")
+            st.write("📅 Checking your calendar...")
+            
+            # Get calendar events using selected planning window
+            now = datetime.now(pytz.UTC)
+            time_max = (now + timedelta(days=planning_window)).isoformat()
+            events_result = meal_planner.service.events().list(
+                calendarId='primary',
+                timeMin=now.isoformat(),
+                timeMax=time_max,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+            
+            st.write("⏳ Analyzing schedule...")
+            events = events_result.get('items', [])
+            
+            status.update(label="Calendar loaded!", state="complete")
+
         # Display current calendar
         st.subheader("Current Schedule")
         calendar_fig = create_calendar_view(events)
@@ -138,6 +147,9 @@ def render_meal_planner_page(recipe_data=None):
                 slots_by_date[date_key] = []
             slots_by_date[date_key].append(slot)
 
+        # Add meal type selection
+        meal_type = st.selectbox("Meal Type", ["Breakfast", "Lunch", "Dinner"])
+
         for date_key, slots in slots_by_date.items():
             date_obj = datetime.strptime(date_key, '%Y-%m-%d')
             st.write(f"**{date_obj.strftime('%A, %B %d')}**")
@@ -151,25 +163,30 @@ def render_meal_planner_page(recipe_data=None):
                     slot_text = f"{start_time.strftime('%I:%M %p')} - {end_time.strftime('%I:%M %p')} UTC"
                     if st.button(f"📅 {slot_text}", key=f"slot_{date_key}_{i}"):
                         selected_slot = slot
+                        selected_slot['meal_type'] = meal_type
                         
                         # Update calendar view with selected slot
                         updated_fig = create_calendar_view(events, selected_slot)
                         if updated_fig:
                             st.plotly_chart(updated_fig, use_container_width=True)
 
-        # Schedule the selected slot
+        # When scheduling a slot
         if selected_slot:
-            with st.spinner("Scheduling meal prep..."):
+            with st.status("Scheduling meal prep...", expanded=True) as status:
+                st.write("📝 Creating calendar event...")
                 start_time = datetime.fromisoformat(selected_slot['start'])
                 success = meal_planner.schedule_meal_prep(
                     recipe=recipe_data,
-                    start_time=start_time
+                    start_time=start_time,
+                    meal_type=selected_slot['meal_type']
                 )
                 
                 if success:
-                    st.success("Meal prep scheduled successfully! Check your Google Calendar.")
+                    status.update(label="Successfully scheduled!", state="complete")
+                    st.success(f"✅ {meal_type} meal prep scheduled! Check your Google Calendar.")
                 else:
-                    st.error("Failed to schedule meal prep. Please try again.")
+                    status.update(label="Scheduling failed", state="error")
+                    st.error("❌ Failed to schedule meal prep. Please try again.")
 
     except Exception as e:
         st.error(f"Error in meal planner: {str(e)}")

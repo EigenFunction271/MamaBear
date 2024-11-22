@@ -3,9 +3,33 @@ from src.utils.image_processing import process_image
 from src.services.image_analysis_service import analyze_fridge_image
 from src.services.recipe_service import get_recipes_from_spoonacular
 from src.ui.components import create_recipe_card
+from src.api.spoonacular_client import (
+    get_recipes_from_spoonacular,
+    get_recipe_information,
+    initialize_spoonacular_client
+)
+
+@st.cache_resource
+def preload_components():
+    """Preload common components."""
+    return {
+        'recipe_card_css': """
+            <style>
+            .recipe-card { /* Your CSS here */ }
+            </style>
+        """,
+        'common_prompts': {
+            'recipe_analysis': "...",
+            'cooking_instructions': "..."
+        }
+    }
 
 def render_recipe_page(apis):
     """Render the recipe analysis and suggestion page."""
+    # Preload components at start
+    components = preload_components()
+    st.markdown(components['recipe_card_css'], unsafe_allow_html=True)
+    
     st.header("🔍 Recipe Analysis")
     
     # Initialize session state variables if they don't exist
@@ -26,21 +50,29 @@ def render_recipe_page(apis):
     )
     
     if uploaded_file:
-        with st.spinner("🔍 Processing your image..."):
+        # Create a loading container with multiple status updates
+        with st.status("Processing your image...", expanded=True) as status:
+            st.write("Initializing analysis...")
             temp_path = process_image(uploaded_file)
+            
             if temp_path:
                 try:
-                    # Analyze image
+                    # Update status for each major step
+                    status.update(label="Analyzing image...", state="running")
+                    st.write("🔍 Detecting items...")
                     analysis_result, annotated_image, items_info = analyze_fridge_image(temp_path)
                     
                     if analysis_result and items_info:
+                        status.update(label="Storing results...", state="running")
+                        st.write("💾 Saving analysis...")
                         # Store results in session state
                         st.session_state.current_analysis = analysis_result
                         st.session_state.current_annotated_image = annotated_image
                         st.session_state.current_items_info = items_info
                         
-                        # Clear previous recipes when new image is uploaded
+                        # Clear previous recipes
                         st.session_state.current_recipes = None
+                        status.update(label="Analysis complete!", state="complete")
                 finally:
                     try:
                         import os
@@ -69,7 +101,7 @@ def render_recipe_page(apis):
             st.session_state.page = "Meal Planning"
 
 def display_recipes(items_info, groq_client):
-    """Display recipe cards in a grid layout."""
+    """Display recipe cards in a grid layout with lazy loading."""
     # Add custom CSS to reduce padding and margins
     st.markdown("""
         <style>
@@ -93,88 +125,161 @@ def display_recipes(items_info, groq_client):
     if st.session_state.current_recipes is None:
         ingredients_key = tuple(sorted(items_info.keys()))
         
-        with st.spinner("🔍 Searching for recipes..."):
-            recipes = get_recipes_from_spoonacular(ingredients_key)
-            st.session_state.current_recipes = recipes
+        # Create a loading container for recipe search
+        with st.status("Finding recipes...", expanded=True) as status:
+            st.write("🔍 Searching recipe database...")
+            recipes = get_recipes_from_spoonacular(ingredients_key, max_recipes=4)
+            
+            if recipes:
+                st.write(f"✅ Found {len(recipes)} matching recipes!")
+                st.session_state.current_recipes = recipes
+                status.update(label="Recipes found!", state="complete")
+            else:
+                status.update(label="No recipes found", state="error")
     
     if st.session_state.current_recipes:
+        # Add a progress bar for recipe card generation
+        progress_text = "Generating recipe cards..."
+        recipe_count = len(st.session_state.current_recipes)
+        progress_bar = st.progress(0, text=progress_text)
+        
         cols = st.columns(2)
         for idx, recipe in enumerate(st.session_state.current_recipes):
             with cols[idx % 2]:
-                # Container for each recipe with reduced padding
-                with st.container():
-                    # Get recipe details
-                    recipe_details = generate_recipe_details(groq_client, recipe)
-                    
-                    # Display recipe image and title with minimal spacing
-                    st.image(recipe.get('image', ''), use_container_width=True)
-                    st.markdown(f"### {recipe['title']}")
-                    
-                    # Basic info in compact columns
-                    info_col1, info_col2 = st.columns(2)
-                    with info_col1:
-                        st.markdown("🔥 **Calories:** " + str(recipe.get('calories', 'Not available')))
-                        st.markdown("⏱️ **Time:** " + str(recipe.get('readyInMinutes', 'Not specified')) + " mins")
-                        st.markdown("💰 **Price:** $" + str(recipe.get('pricePerServing', 'N/A')) + "/serving")
-                    
-                    with info_col2:
-                        st.markdown("🥗 **Dietary:** " + (recipe.get('diets', ['Not specified'])[0] if recipe.get('diets') else 'Not specified'))
-                        st.markdown("🌎 **Cuisine:** " + (recipe.get('cuisines', ['Not specified'])[0] if recipe.get('cuisines') else 'Not specified'))
-                        st.markdown("📊 **Difficulty:** " + str(recipe.get('difficulty', 'Not specified')))
-                    
-                    # Ingredients section
-                    st.markdown("#### 🧂 Ingredients")
-                    ing_col1, ing_col2 = st.columns(2)
-                    with ing_col1:
-                        st.markdown("**Available:**\n" + 
-                            ', '.join([ing['name'] for ing in recipe.get('usedIngredients', []) 
-                                     if isinstance(ing, dict) and 'name' in ing]) or 'None')
-                    
-                    with ing_col2:
-                        st.markdown("**Missing:**\n" + 
-                            ', '.join([ing['name'] for ing in recipe.get('missedIngredients', []) 
-                                     if isinstance(ing, dict) and 'name' in ing]) or 'None')
-                    
-                    # Instructions in compact expander
-                    with st.expander("📝 Instructions"):
-                        st.markdown(recipe_details)
-                    
-                    # Schedule button
-                    st.button(f"📅 Schedule {recipe['title']}", key=f"schedule_{idx}")
-                    
-                    # Add a small divider between recipes
-                    st.markdown("---")
+                # Update progress
+                progress = (idx + 1) / recipe_count
+                progress_bar.progress(progress, text=f"Generating recipe {idx + 1} of {recipe_count}")
+                
+                # Get complete recipe information from Spoonacular
+                recipe_details = get_recipe_information(recipe['id'])
+                
+                # Display recipe image and title
+                st.image(recipe.get('image', ''), use_container_width=True)
+                st.markdown(f"### {recipe['title']}")
+                
+                # Basic info in columns
+                info_col1, info_col2 = st.columns(2)
+                with info_col1:
+                    st.markdown("🔥 **Calories:** " + 
+                        (f"{recipe_details.get('nutrition', {}).get('nutrients', [{}])[0].get('amount', 'Not')} kcal" 
+                         if recipe_details and 'nutrition' in recipe_details 
+                         else "Not available"))
+                    st.markdown("⏱️ **Time:** " + 
+                        (f"{recipe_details.get('readyInMinutes', 'Not specified')} mins" 
+                         if recipe_details 
+                         else "Not specified mins"))
+                    st.markdown("💰 **Price:** $" + 
+                        (f"{recipe_details.get('pricePerServing', 'N/A')}/serving" 
+                         if recipe_details 
+                         else "N/A/serving"))
+                
+                with info_col2:
+                    st.markdown("🥗 **Dietary:** " + 
+                        (', '.join(recipe_details.get('diets', ['Not specified'])) 
+                         if recipe_details and recipe_details.get('diets') 
+                         else "Not specified"))
+                    st.markdown("🌎 **Cuisine:** " + 
+                        (', '.join(recipe_details.get('cuisines', ['Not specified'])) 
+                         if recipe_details and recipe_details.get('cuisines') 
+                         else "Not specified"))
+                    st.markdown("📊 **Difficulty:** " + 
+                        (get_difficulty_level(recipe_details) 
+                         if recipe_details 
+                         else "Not specified"))
+                
+                # Ingredients section
+                st.markdown("#### 🧂 Ingredients")
+                ing_col1, ing_col2 = st.columns(2)
+                with ing_col1:
+                    st.markdown("**Available:**\n" + 
+                        ', '.join([ing['name'] for ing in recipe.get('usedIngredients', []) 
+                                 if isinstance(ing, dict) and 'name' in ing]) or 'None')
+                
+                with ing_col2:
+                    st.markdown("**Missing:**\n" + 
+                        ', '.join([ing['name'] for ing in recipe.get('missedIngredients', []) 
+                                 if isinstance(ing, dict) and 'name' in ing]) or 'None')
+                
+                # Instructions in compact expander
+                with st.expander("📝 Instructions"):
+                    st.markdown(recipe_details.get('instructions', 'Instructions not available'))
+                
+                # Schedule button
+                if st.button(f"📅 Schedule {recipe['title']}", key=f"schedule_{recipe['id']}"):
+                    st.session_state.selected_recipe = recipe_details
+                    st.session_state.page = "Meal Planning"
+                    st.rerun()
+                
+                # Add a small divider between recipes
+                st.markdown("---")
+        
+        # Add "Load More" button centered at the bottom
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🔄 Load More Recipes", key="load_more"):
+                with st.spinner("Finding more recipes..."):
+                    more_recipes = get_recipes_from_spoonacular(
+                        ingredients_key,
+                        max_recipes=4,
+                        offset=len(st.session_state.current_recipes)
+                    )
+                    if more_recipes:
+                        st.session_state.current_recipes.extend(more_recipes)
+                        st.rerun()
+                    else:
+                        st.info("No more recipes found with these ingredients.")
     else:
         st.warning("No recipes found. Try with different ingredients.")
 
-def generate_recipe_details(groq_client, recipe):
-    """Generate detailed recipe information using Groq."""
-    try:
-        prompt = f"""
-        Generate a detailed recipe for "{recipe['title']}" with:
-        - Estimated cooking time
-        - Difficulty level
-        - Servings
-        - Key steps
+def get_difficulty_level(recipe_details: dict) -> str:
+    """Calculate difficulty level based on recipe attributes."""
+    if not recipe_details:
+        return "Not specified"
         
-        Format the response as plain text without any HTML or CSS elements.
-        """
+    # Calculate difficulty based on preparation time and number of ingredients
+    prep_time = recipe_details.get('readyInMinutes', 0)
+    ingredients_count = len(recipe_details.get('extendedIngredients', []))
+    
+    if prep_time <= 20 and ingredients_count <= 5:
+        return "Easy"
+    elif prep_time >= 60 or ingredients_count >= 12:
+        return "Hard"
+    else:
+        return "Medium"
+
+def generate_recipe_details(recipe_data: dict) -> str:
+    """Generate a formatted string of recipe details."""
+    if not recipe_data:
+        return "Recipe details not available"
         
-        response = groq_client.chat.completions.create(
-            model="mixtral-8x7b-32768",
-            messages=[
-                {"role": "system", "content": "You are a helpful culinary assistant. Provide recipe details in plain text format."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=500
-        )
-        
-        # Clean the response to ensure it's plain text
-        recipe_text = response.choices[0].message.content
-        # Remove any HTML-like tags that might be in the response
-        recipe_text = recipe_text.replace("<", "&lt;").replace(">", "&gt;")
-        return recipe_text
-    except Exception as e:
-        st.error(f"Error generating recipe details: {str(e)}")
-        return "Recipe details unavailable"
+    details = []
+    details.append(f"# {recipe_data.get('title', 'Untitled Recipe')}\n")
+    
+    # Basic info
+    details.append(f"🔥 **Calories:** {recipe_data.get('calories', 'Not available')}")
+    details.append(f"⏱️ **Time:** {recipe_data.get('readyInMinutes', 'Not specified')} mins")
+    details.append(f"💰 **Price:** ${recipe_data.get('pricePerServing', 'N/A')}/serving")
+    details.append(f"🥗 **Dietary:** {', '.join(recipe_data.get('diets', ['Not specified']))}")
+    details.append(f"🌎 **Cuisine:** {', '.join(recipe_data.get('cuisines', ['Not specified']))}")
+    
+    # Ingredients
+    details.append("\n### 🧂 Ingredients")
+    if 'extendedIngredients' in recipe_data:
+        for ingredient in recipe_data['extendedIngredients']:
+            details.append(f"- {ingredient.get('original', '')}")
+    
+    # Instructions
+    details.append("\n### 📝 Instructions")
+    if 'instructions' in recipe_data:
+        details.append(recipe_data['instructions'])
+    else:
+        details.append("Instructions not available")
+    
+    return "\n".join(details)
+
+# Add this at the very bottom of the file
+__all__ = [
+    'render_recipe_page',
+    'display_recipes',
+    'generate_recipe_details'
+]
